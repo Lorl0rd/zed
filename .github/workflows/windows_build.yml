@@ -1,0 +1,41 @@
+name: Windows Build
+
+on:
+  schedule:
+    - cron: '0 23 * * 0' # weekly
+  workflow_dispatch: # on button click
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build Windows
+    runs-on: windows-latest
+    
+    steps:
+      # more info here:- https://github.com/rust-lang/cargo/issues/13020
+      - name: Enable longer pathnames for git
+        run: git config --system core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Save executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binary
+          path: target/release/*.exe
+          
