@@ -1,7 +1,7 @@
 use anyhow::Result;
 use copilot::{Copilot, Status};
 use editor::{scroll::Autoscroll, Editor};
-use feature_flags::{FeatureFlagAppExt, ZetaFeatureFlag};
+use feature_flags::{FeatureFlagAppExt, PredictEditsFeatureFlag};
 use fs::Fs;
 use gpui::{
     actions, div, pulsating_between, Action, Animation, AnimationExt, AppContext,
@@ -201,8 +201,8 @@ impl Render for InlineCompletionButton {
                 );
             }
 
-            InlineCompletionProvider::Zeta => {
-                if !cx.has_flag::<ZetaFeatureFlag>() {
+            InlineCompletionProvider::Zed => {
+                if !cx.has_flag::<PredictEditsFeatureFlag>() {
                     return div();
                 }
 
