@@ -6,19 +6,19 @@ pub mod context_store;
 mod inline_assistant;
 mod patch;
 mod prompt_library;
-mod prompts;
 mod slash_command;
 pub(crate) mod slash_command_picker;
 pub mod slash_command_settings;
-mod slash_command_working_set;
 mod streaming_diff;
 mod terminal_inline_assistant;
 
 use crate::slash_command::project_command::ProjectSlashCommandFeatureFlag;
-pub use crate::slash_command_working_set::{SlashCommandId, SlashCommandWorkingSet};
+pub use ::prompt_library::PromptBuilder;
+use ::prompt_library::PromptLoadingParams;
 pub use assistant_panel::{AssistantPanel, AssistantPanelEvent};
 use assistant_settings::AssistantSettings;
 use assistant_slash_command::SlashCommandRegistry;
+pub use assistant_slash_command::{SlashCommandId, SlashCommandWorkingSet};
 use client::{proto, Client};
 use command_palette_hooks::CommandPaletteFilter;
 pub use context::*;
@@ -32,8 +32,6 @@ use language_model::{
     LanguageModelId, LanguageModelProviderId, LanguageModelRegistry, LanguageModelResponseMessage,
 };
 pub use patch::*;
-pub use prompts::PromptBuilder;
-use prompts::PromptLoadingParams;
 use semantic_index::{CloudEmbeddingProvider, SemanticDb};
 use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsStore};
@@ -226,14 +224,14 @@ pub fn init(
     .detach();
 
     context_store::init(&client.clone().into());
-    prompt_library::init(cx);
+    ::prompt_library::init(cx);
     init_language_model_settings(cx);
     assistant_slash_command::init(cx);
     assistant_tool::init(cx);
     assistant_panel::init(cx);
     context_server::init(cx);
 
-    let prompt_builder = prompts::PromptBuilder::new(Some(PromptLoadingParams {
+    let prompt_builder = PromptBuilder::new(Some(PromptLoadingParams {
         fs: fs.clone(),
         repo_path: stdout_is_a_pty
             .then(|| std::env::current_dir().log_err())
@@ -242,7 +240,7 @@ pub fn init(
     }))
     .log_err()
     .map(Arc::new)
-    .unwrap_or_else(|| Arc::new(prompts::PromptBuilder::new(None).unwrap()));
+    .unwrap_or_else(|| Arc::new(PromptBuilder::new(None).unwrap()));
     register_slash_commands(Some(prompt_builder.clone()), cx);
     inline_assistant::init(
         fs.clone(),
