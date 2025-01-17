@@ -375,9 +375,9 @@ dependencies = [
  "anyhow",
  "assistant_settings",
  "assistant_slash_command",
+ "assistant_slash_commands",
  "assistant_tool",
  "async-watch",
- "cargo_toml",
  "chrono",
  "client",
  "clock",
@@ -392,10 +392,7 @@ dependencies = [
  "fs",
  "futures 0.3.31",
  "fuzzy",
- "globset",
  "gpui",
- "html_to_markdown",
- "http_client",
  "indexed_docs",
  "indoc",
  "language",
@@ -405,11 +402,9 @@ dependencies = [
  "languages",
  "log",
  "lsp",
- "markdown",
  "menu",
  "multi_buffer",
  "open_ai",
- "ordered-float 2.10.1",
  "parking_lot",
  "paths",
  "picker",
@@ -432,6 +427,7 @@ dependencies = [
  "similar",
  "smallvec",
  "smol",
+ "streaming_diff",
  "strum",
  "telemetry",
  "telemetry_events",
@@ -439,7 +435,6 @@ dependencies = [
  "terminal_view",
  "text",
  "theme",
- "toml 0.8.19",
  "tree-sitter-md",
  "ui",
  "unindent",
@@ -484,7 +479,6 @@ dependencies = [
  "markdown",
  "menu",
  "multi_buffer",
- "ordered-float 2.10.1",
  "parking_lot",
  "picker",
  "project",
@@ -497,6 +491,7 @@ dependencies = [
  "settings",
  "similar",
  "smol",
+ "streaming_diff",
  "telemetry_events",
  "terminal",
  "terminal_view",
@@ -551,6 +546,48 @@ dependencies = [
  "serde",
  "serde_json",
  "ui",
+ "workspace",
+]
+
+[[package]]
+name = "assistant_slash_commands"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assistant_slash_command",
+ "cargo_toml",
+ "chrono",
+ "collections",
+ "context_server",
+ "editor",
+ "env_logger 0.11.6",
+ "feature_flags",
+ "fs",
+ "futures 0.3.31",
+ "fuzzy",
+ "globset",
+ "gpui",
+ "html_to_markdown",
+ "http_client",
+ "indexed_docs",
+ "language",
+ "language_model",
+ "log",
+ "pretty_assertions",
+ "project",
+ "prompt_library",
+ "rope",
+ "schemars",
+ "semantic_index",
+ "serde",
+ "serde_json",
+ "settings",
+ "smol",
+ "terminal_view",
+ "text",
+ "toml 0.8.19",
+ "ui",
+ "util",
  "workspace",
 ]
 
@@ -2585,6 +2622,7 @@ dependencies = [
  "anthropic",
  "anyhow",
  "assistant",
+ "assistant_slash_command",
  "assistant_tool",
  "async-stripe",
  "async-trait",
@@ -2641,6 +2679,7 @@ dependencies = [
  "pretty_assertions",
  "project",
  "prometheus",
+ "prompt_library",
  "prost 0.9.0",
  "rand 0.8.5",
  "recent_projects",
@@ -12309,6 +12348,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "streaming_diff"
+version = "0.1.0"
+dependencies = [
+ "ordered-float 2.10.1",
+ "rand 0.8.5",
+ "rope",
+ "util",
+]
+
+[[package]]
 name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13640,9 +13689,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-css"
-version = "0.23.1"
+version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25435a275adb3226b6fddab891bbc50d1a500774a44ceb97022a39666ccda75d"
+checksum = "5ad6489794d41350d12a7fbe520e5199f688618f43aace5443980d1ddcf1b29e"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -16209,6 +16258,7 @@ dependencies = [
  "project",
  "project_panel",
  "project_symbols",
+ "prompt_library",
  "proto",
  "recent_projects",
  "release_channel",
