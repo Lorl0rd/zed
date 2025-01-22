@@ -1,0 +1,22 @@
+name: Sync and merge upstream repository with current repository
+
+on:
+  schedule:
+    - cron: '0 22 * * 0' # weekly
+  workflow_dispatch: # on button click
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Github Sync to Upstream Repository
+        uses: dabreadman/sync-upstream-repo@v1.0.0.b
+        with:
+          # URL of gitHub public upstream repo
+          upstream_repo: "https://https://github.com/zed-industries/zed.git"
+          # Branch to merge from upstream (defaults to downstream branch)
+          upstream_branch: main
+          # Branch to merge into downstream
+          downstream_branch: main_fork
+          # GitHub Bot token
+          token: ${{ secrets.GITHUB_TOKEN }}
