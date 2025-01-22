@@ -34,12 +34,13 @@ pub use crate::inline_assistant::InlineAssistant;
 actions!(
     assistant2,
     [
-        ToggleFocus,
         NewThread,
+        NewPromptEditor,
         ToggleContextPicker,
         ToggleModelSelector,
         RemoveAllContext,
         OpenHistory,
+        OpenPromptEditorHistory,
         RemoveSelectedThread,
         Chat,
         ChatMode,
