@@ -7396,6 +7396,7 @@ dependencies = [
  "serde",
  "serde_json",
  "smol",
+ "text",
  "util",
 ]
 
@@ -9832,6 +9833,7 @@ dependencies = [
  "log",
  "lsp",
  "node_runtime",
+ "once_cell",
  "parking_lot",
  "pathdiff",
  "paths",
@@ -16267,7 +16269,7 @@ dependencies = [
 
 [[package]]
 name = "zed"
-version = "0.171.0"
+version = "0.172.0"
 dependencies = [
  "activity_indicator",
  "anyhow",

@@ -485,10 +485,16 @@ enum InlineCompletionText {
     },
 }
 
+pub(crate) enum EditDisplayMode {
+    TabAccept,
+    DiffPopover,
+    Inline,
+}
+
 enum InlineCompletion {
     Edit {
         edits: Vec<(Range<Anchor>, String)>,
-        single_line: bool,
+        display_mode: EditDisplayMode,
     },
     Move(Anchor),
 }
@@ -4691,7 +4697,7 @@ impl Editor {
             }
             InlineCompletion::Edit {
                 edits,
-                single_line: _,
+                display_mode: _,
             } => {
                 if let Some(provider) = self.inline_completion_provider() {
                     provider.accept(cx);
@@ -4741,7 +4747,7 @@ impl Editor {
             }
             InlineCompletion::Edit {
                 edits,
-                single_line: _,
+                display_mode: _,
             } => {
                 // Find an insertion that starts at the cursor position.
                 let snapshot = self.buffer.read(cx).snapshot(cx);
@@ -4941,10 +4947,23 @@ impl Editor {
 
             invalidation_row_range = edit_start_row..edit_end_row;
 
-            let single_line = first_edit_start_point.row == last_edit_end_point.row
-                && !edits.iter().any(|(_, edit)| edit.contains('\n'));
+            let display_mode = if all_edits_insertions_or_deletions(&edits, &multibuffer) {
+                if provider.show_tab_accept_marker()
+                    && first_edit_start_point.row == last_edit_end_point.row
+                    && !edits.iter().any(|(_, edit)| edit.contains('\n'))
+                {
+                    EditDisplayMode::TabAccept
+                } else {
+                    EditDisplayMode::Inline
+                }
+            } else {
+                EditDisplayMode::DiffPopover
+            };
 
-            completion = InlineCompletion::Edit { edits, single_line };
+            completion = InlineCompletion::Edit {
+                edits,
+                display_mode,
+            };
         };
 
         let invalidation_range = multibuffer
@@ -4987,7 +5006,7 @@ impl Editor {
             let text = match &self.active_inline_completion.as_ref()?.completion {
                 InlineCompletion::Edit {
                     edits,
-                    single_line: _,
+                    display_mode: _,
                 } => inline_completion_edit_text(&editor_snapshot, edits, true, cx),
                 InlineCompletion::Move(target) => {
                     let target_point =
@@ -12457,28 +12476,27 @@ impl Editor {
                 cx.emit(SearchEvent::MatchesInvalidated);
                 if *singleton_buffer_edited {
                     if let Some(project) = &self.project {
-                        let project = project.read(cx);
                         #[allow(clippy::mutable_key_type)]
-                        let languages_affected = multibuffer
-                            .read(cx)
-                            .all_buffers()
-                            .into_iter()
-                            .filter_map(|buffer| {
-                                let buffer = buffer.read(cx);
-                                let language = buffer.language()?;
-                                if project.is_local()
-                                    && project
-                                        .language_servers_for_local_buffer(buffer, cx)
-                                        .count()
-                                        == 0
-                                {
-                                    None
-                                } else {
-                                    Some(language)
-                                }
-                            })
-                            .cloned()
-                            .collect::<HashSet<_>>();
+                        let languages_affected = multibuffer.update(cx, |multibuffer, cx| {
+                            multibuffer
+                                .all_buffers()
+                                .into_iter()
+                                .filter_map(|buffer| {
+                                    buffer.update(cx, |buffer, cx| {
+                                        let language = buffer.language()?;
+                                        let should_discard = project.update(cx, |project, cx| {
+                                            project.is_local()
+                                                && project.for_language_servers_for_local_buffer(
+                                                    buffer,
+                                                    |it| it.count() == 0,
+                                                    cx,
+                                                )
+                                        });
+                                        should_discard.not().then_some(language.clone())
+                                    })
+                                })
+                                .collect::<HashSet<_>>()
+                        });
                         if !languages_affected.is_empty() {
                             self.refresh_inlay_hints(
                                 InlayHintRefreshReason::BufferEdited(languages_affected),
@@ -13032,15 +13050,18 @@ impl Editor {
         self.handle_input(text, cx);
     }
 
-    pub fn supports_inlay_hints(&self, cx: &AppContext) -> bool {
+    pub fn supports_inlay_hints(&self, cx: &mut AppContext) -> bool {
         let Some(provider) = self.semantics_provider.as_ref() else {
             return false;
         };
 
         let mut supports = false;
-        self.buffer().read(cx).for_each_buffer(|buffer| {
-            supports |= provider.supports_inlay_hints(buffer, cx);
+        self.buffer().update(cx, |this, cx| {
+            this.for_each_buffer(|buffer| {
+                supports |= provider.supports_inlay_hints(buffer, cx);
+            })
         });
+
         supports
     }
 
@@ -13652,7 +13673,7 @@ pub trait SemanticsProvider {
         cx: &mut AppContext,
     ) -> Option<Task<anyhow::Result<InlayHint>>>;
 
-    fn supports_inlay_hints(&self, buffer: &Model<Buffer>, cx: &AppContext) -> bool;
+    fn supports_inlay_hints(&self, buffer: &Model<Buffer>, cx: &mut AppContext) -> bool;
 
     fn document_highlights(
         &self,
@@ -14037,17 +14058,25 @@ impl SemanticsProvider for Model<Project> {
         }))
     }
 
-    fn supports_inlay_hints(&self, buffer: &Model<Buffer>, cx: &AppContext) -> bool {
+    fn supports_inlay_hints(&self, buffer: &Model<Buffer>, cx: &mut AppContext) -> bool {
         // TODO: make this work for remote projects
-        self.read(cx)
-            .language_servers_for_local_buffer(buffer.read(cx), cx)
-            .any(
-                |(_, server)| match server.capabilities().inlay_hint_provider {
-                    Some(lsp::OneOf::Left(enabled)) => enabled,
-                    Some(lsp::OneOf::Right(_)) => true,
-                    None => false,
-                },
-            )
+        buffer.update(cx, |buffer, cx| {
+            self.update(cx, |this, cx| {
+                this.for_language_servers_for_local_buffer(
+                    buffer,
+                    |mut it| {
+                        it.any(
+                            |(_, server)| match server.capabilities().inlay_hint_provider {
+                                Some(lsp::OneOf::Left(enabled)) => enabled,
+                                Some(lsp::OneOf::Right(_)) => true,
+                                None => false,
+                            },
+                        )
+                    },
+                    cx,
+                )
+            })
+        })
     }
 
     fn inlay_hints(
@@ -15275,3 +15304,31 @@ pub struct KillRing(ClipboardItem);
 impl Global for KillRing {}
 
 const UPDATE_DEBOUNCE: Duration = Duration::from_millis(50);
+
+fn all_edits_insertions_or_deletions(
+    edits: &Vec<(Range<Anchor>, String)>,
+    snapshot: &MultiBufferSnapshot,
+) -> bool {
+    let mut all_insertions = true;
+    let mut all_deletions = true;
+
+    for (range, new_text) in edits.iter() {
+        let range_is_empty = range.to_offset(&snapshot).is_empty();
+        let text_is_empty = new_text.is_empty();
+
+        if range_is_empty != text_is_empty {
+            if range_is_empty {
+                all_deletions = false;
+            } else {
+                all_insertions = false;
+            }
+        } else {
+            return false;
+        }
+
+        if !all_insertions && !all_deletions {
+            return false;
+        }
+    }
+    all_insertions || all_deletions
+}
