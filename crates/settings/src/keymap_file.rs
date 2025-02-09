@@ -1,21 +1,23 @@
-use std::rc::Rc;
-
-use crate::{settings_store::parse_json_with_comments, SettingsAssets};
-use anyhow::anyhow;
+use anyhow::{anyhow, Context as _, Result};
 use collections::{HashMap, IndexMap};
+use fs::Fs;
 use gpui::{
-    Action, ActionBuildError, AppContext, InvalidKeystrokeError, KeyBinding,
-    KeyBindingContextPredicate, NoAction, SharedString, KEYSTROKE_PARSE_EXPECTED_MESSAGE,
+    Action, ActionBuildError, App, InvalidKeystrokeError, KeyBinding, KeyBindingContextPredicate,
+    NoAction, SharedString, KEYSTROKE_PARSE_EXPECTED_MESSAGE,
 };
+use migrator::migrate_keymap;
 use schemars::{
     gen::{SchemaGenerator, SchemaSettings},
     schema::{ArrayValidation, InstanceType, Schema, SchemaObject, SubschemaValidation},
     JsonSchema,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fmt::Write;
+use std::rc::Rc;
+use std::{fmt::Write, sync::Arc};
 use util::{asset_str, markdown::MarkdownString};
+
+use crate::{settings_store::parse_json_with_comments, SettingsAssets};
 
 // Note that the doc comments on these are shown by json-language-server when editing the keymap, so
 // they should be considered user-facing documentation. Documentation is not handled well with
@@ -28,12 +30,12 @@ use util::{asset_str, markdown::MarkdownString};
 
 /// Keymap configuration consisting of sections. Each section may have a context predicate which
 /// determines whether its bindings are used.
-#[derive(Debug, Deserialize, Default, Clone, JsonSchema)]
+#[derive(Debug, Deserialize, Default, Clone, JsonSchema, Serialize)]
 #[serde(transparent)]
 pub struct KeymapFile(Vec<KeymapSection>);
 
 /// Keymap section which binds keystrokes to actions.
-#[derive(Debug, Deserialize, Default, Clone, JsonSchema)]
+#[derive(Debug, Deserialize, Default, Clone, JsonSchema, Serialize)]
 pub struct KeymapSection {
     /// Determines when these bindings are active. When just a name is provided, like `Editor` or
     /// `Workspace`, the bindings will be active in that context. Boolean expressions like `X && Y`,
@@ -78,9 +80,9 @@ impl KeymapSection {
 /// Unlike the other json types involved in keymaps (including actions), this doc-comment will not
 /// be included in the generated JSON schema, as it manually defines its `JsonSchema` impl. The
 /// actual schema used for it is automatically generated in `KeymapFile::generate_json_schema`.
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Default, Clone, Serialize)]
 #[serde(transparent)]
-pub struct KeymapAction(Value);
+pub struct KeymapAction(pub(crate) Value);
 
 impl std::fmt::Display for KeymapAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -114,9 +116,11 @@ impl JsonSchema for KeymapAction {
 pub enum KeymapFileLoadResult {
     Success {
         key_bindings: Vec<KeyBinding>,
+        keymap_file: KeymapFile,
     },
     SomeFailedToLoad {
         key_bindings: Vec<KeyBinding>,
+        keymap_file: KeymapFile,
         error_message: MarkdownString,
     },
     JsonParseFailure {
@@ -129,7 +133,7 @@ impl KeymapFile {
         parse_json_with_comments::<Self>(content)
     }
 
-    pub fn load_asset(asset_path: &str, cx: &AppContext) -> anyhow::Result<Vec<KeyBinding>> {
+    pub fn load_asset(asset_path: &str, cx: &App) -> anyhow::Result<Vec<KeyBinding>> {
         match Self::load(asset_str::<SettingsAssets>(asset_path).as_ref(), cx) {
             KeymapFileLoadResult::Success { key_bindings, .. } => Ok(key_bindings),
             KeymapFileLoadResult::SomeFailedToLoad { error_message, .. } => Err(anyhow!(
@@ -144,12 +148,13 @@ impl KeymapFile {
     #[cfg(feature = "test-support")]
     pub fn load_asset_allow_partial_failure(
         asset_path: &str,
-        cx: &AppContext,
+        cx: &App,
     ) -> anyhow::Result<Vec<KeyBinding>> {
         match Self::load(asset_str::<SettingsAssets>(asset_path).as_ref(), cx) {
             KeymapFileLoadResult::SomeFailedToLoad {
                 key_bindings,
                 error_message,
+                ..
             } if key_bindings.is_empty() => Err(anyhow!(
                 "Error loading built-in keymap \"{asset_path}\": {error_message}"
             )),
@@ -162,9 +167,9 @@ impl KeymapFile {
     }
 
     #[cfg(feature = "test-support")]
-    pub fn load_panic_on_failure(content: &str, cx: &AppContext) -> Vec<KeyBinding> {
+    pub fn load_panic_on_failure(content: &str, cx: &App) -> Vec<KeyBinding> {
         match Self::load(content, cx) {
-            KeymapFileLoadResult::Success { key_bindings } => key_bindings,
+            KeymapFileLoadResult::Success { key_bindings, .. } => key_bindings,
             KeymapFileLoadResult::SomeFailedToLoad { error_message, .. } => {
                 panic!("{error_message}");
             }
@@ -174,12 +179,13 @@ impl KeymapFile {
         }
     }
 
-    pub fn load(content: &str, cx: &AppContext) -> KeymapFileLoadResult {
+    pub fn load(content: &str, cx: &App) -> KeymapFileLoadResult {
         let key_equivalents = crate::key_equivalents::get_key_equivalents(&cx.keyboard_layout());
 
         if content.is_empty() {
             return KeymapFileLoadResult::Success {
                 key_bindings: Vec::new(),
+                keymap_file: KeymapFile(Vec::new()),
             };
         }
         let keymap_file = match parse_json_with_comments::<Self>(content) {
@@ -266,7 +272,10 @@ impl KeymapFile {
         }
 
         if errors.is_empty() {
-            KeymapFileLoadResult::Success { key_bindings }
+            KeymapFileLoadResult::Success {
+                key_bindings,
+                keymap_file,
+            }
         } else {
             let mut error_message = "Errors in user keymap file.\n".to_owned();
             for (context, section_errors) in errors {
@@ -284,6 +293,7 @@ impl KeymapFile {
             }
             KeymapFileLoadResult::SomeFailedToLoad {
                 key_bindings,
+                keymap_file,
                 error_message: MarkdownString(error_message),
             }
         }
@@ -294,7 +304,7 @@ impl KeymapFile {
         action: &KeymapAction,
         context: Option<Rc<KeyBindingContextPredicate>>,
         key_equivalents: Option<&HashMap<char, char>>,
-        cx: &AppContext,
+        cx: &App,
     ) -> std::result::Result<KeyBinding, String> {
         let (build_result, action_input_string) = match &action.0 {
             Value::Array(items) => {
@@ -367,7 +377,7 @@ impl KeymapFile {
         }
     }
 
-    pub fn generate_json_schema_for_registered_actions(cx: &mut AppContext) -> Value {
+    pub fn generate_json_schema_for_registered_actions(cx: &mut App) -> Value {
         let mut generator = SchemaSettings::draft07()
             .with(|settings| settings.option_add_null_type = false)
             .into_generator();
@@ -551,6 +561,55 @@ impl KeymapFile {
     pub fn sections(&self) -> impl DoubleEndedIterator<Item = &KeymapSection> {
         self.0.iter()
     }
+
+    async fn load_keymap_file(fs: &Arc<dyn Fs>) -> Result<String> {
+        match fs.load(paths::keymap_file()).await {
+            result @ Ok(_) => result,
+            Err(err) => {
+                if let Some(e) = err.downcast_ref::<std::io::Error>() {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        return Ok(crate::initial_keymap_content().to_string());
+                    }
+                }
+                Err(err)
+            }
+        }
+    }
+
+    pub fn should_migrate_keymap(keymap_file: Self) -> bool {
+        let Ok(old_text) = serde_json::to_string(&keymap_file) else {
+            return false;
+        };
+        migrate_keymap(&old_text).is_some()
+    }
+
+    pub async fn migrate_keymap(fs: Arc<dyn Fs>) -> Result<()> {
+        let old_text = Self::load_keymap_file(&fs).await?;
+        let Some(new_text) = migrate_keymap(&old_text) else {
+            return Ok(());
+        };
+        let initial_path = paths::keymap_file().as_path();
+        if fs.is_file(initial_path).await {
+            let backup_path = paths::home_dir().join(".zed_keymap_backup");
+            fs.atomic_write(backup_path, old_text)
+                .await
+                .with_context(|| {
+                    "Failed to create settings backup in home directory".to_string()
+                })?;
+            let resolved_path = fs.canonicalize(initial_path).await.with_context(|| {
+                format!("Failed to canonicalize keymap path {:?}", initial_path)
+            })?;
+            fs.atomic_write(resolved_path.clone(), new_text)
+                .await
+                .with_context(|| format!("Failed to write keymap to file {:?}", resolved_path))?;
+        } else {
+            fs.atomic_write(initial_path.to_path_buf(), new_text)
+                .await
+                .with_context(|| format!("Failed to write keymap to file {:?}", initial_path))?;
+        }
+
+        Ok(())
+    }
 }
 
 // Double quotes a string and wraps it in backticks for markdown inline code..
@@ -560,7 +619,7 @@ fn inline_code_string(text: &str) -> MarkdownString {
 
 #[cfg(test)]
 mod tests {
-    use crate::KeymapFile;
+    use super::KeymapFile;
 
     #[test]
     fn can_deserialize_keymap_with_trailing_comma() {

@@ -6,8 +6,7 @@ use crate::{
 use anyhow::Result;
 use derive_more::{Deref, DerefMut};
 use gpui::{
-    px, AppContext, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, Global, Pixels,
-    WindowContext,
+    px, App, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, Global, Pixels, Window,
 };
 use refineable::Refineable;
 use schemars::{
@@ -146,7 +145,7 @@ impl ThemeSettings {
     ///
     /// Reads the [`ThemeSettings`] to know which theme should be loaded,
     /// taking into account the current [`SystemAppearance`].
-    pub fn reload_current_theme(cx: &mut AppContext) {
+    pub fn reload_current_theme(cx: &mut App) {
         let mut theme_settings = ThemeSettings::get_global(cx).clone();
         let system_appearance = SystemAppearance::global(cx);
 
@@ -163,6 +162,30 @@ impl ThemeSettings {
             if let Some(_theme) = theme_settings.switch_theme(theme_name, cx) {
                 ThemeSettings::override_global(theme_settings, cx);
             }
+        }
+    }
+
+    /// Reloads the current icon theme.
+    ///
+    /// Reads the [`ThemeSettings`] to know which icon theme should be loaded.
+    pub fn reload_current_icon_theme(cx: &mut App) {
+        let mut theme_settings = ThemeSettings::get_global(cx).clone();
+
+        let active_theme = theme_settings.active_icon_theme.clone();
+        let mut icon_theme_name = active_theme.name.as_ref();
+
+        // If the selected theme doesn't exist, fall back to the default theme.
+        let theme_registry = ThemeRegistry::global(cx);
+        if theme_registry
+            .get_icon_theme(icon_theme_name)
+            .ok()
+            .is_none()
+        {
+            icon_theme_name = DEFAULT_ICON_THEME_NAME;
+        };
+
+        if let Some(_theme) = theme_settings.switch_icon_theme(icon_theme_name, cx) {
+            ThemeSettings::override_global(theme_settings, cx);
         }
     }
 }
@@ -184,7 +207,7 @@ impl Global for GlobalSystemAppearance {}
 
 impl SystemAppearance {
     /// Initializes the [`SystemAppearance`] for the application.
-    pub fn init(cx: &mut AppContext) {
+    pub fn init(cx: &mut App) {
         *cx.default_global::<GlobalSystemAppearance>() =
             GlobalSystemAppearance(SystemAppearance(cx.window_appearance().into()));
     }
@@ -192,17 +215,17 @@ impl SystemAppearance {
     /// Returns the global [`SystemAppearance`].
     ///
     /// Inserts a default [`SystemAppearance`] if one does not yet exist.
-    pub(crate) fn default_global(cx: &mut AppContext) -> Self {
+    pub(crate) fn default_global(cx: &mut App) -> Self {
         cx.default_global::<GlobalSystemAppearance>().0
     }
 
     /// Returns the global [`SystemAppearance`].
-    pub fn global(cx: &AppContext) -> Self {
+    pub fn global(cx: &App) -> Self {
         cx.global::<GlobalSystemAppearance>().0
     }
 
     /// Returns a mutable reference to the global [`SystemAppearance`].
-    pub fn global_mut(cx: &mut AppContext) -> &mut Self {
+    pub fn global_mut(cx: &mut App) -> &mut Self {
         cx.global_mut::<GlobalSystemAppearance>()
     }
 }
@@ -320,9 +343,6 @@ pub struct ThemeSettingsContent {
     #[serde(default)]
     pub theme: Option<ThemeSelection>,
     /// The name of the icon theme to use.
-    ///
-    /// Currently not exposed to the user.
-    #[serde(skip)]
     #[serde(default)]
     pub icon_theme: Option<String>,
 
@@ -429,7 +449,7 @@ impl BufferLineHeight {
 }
 
 impl ThemeSettings {
-    /// Returns the [AdjustedBufferFontSize].
+    /// Returns the buffer font size.
     pub fn buffer_font_size(&self) -> Pixels {
         Self::clamp_font_size(self.buffer_font_size)
     }
@@ -449,7 +469,7 @@ impl ThemeSettings {
     ///
     /// Returns a `Some` containing the new theme if it was successful.
     /// Returns `None` otherwise.
-    pub fn switch_theme(&mut self, theme: &str, cx: &mut AppContext) -> Option<Arc<Theme>> {
+    pub fn switch_theme(&mut self, theme: &str, cx: &mut App) -> Option<Arc<Theme>> {
         let themes = ThemeRegistry::default_global(cx);
 
         let mut new_theme = None;
@@ -491,18 +511,36 @@ impl ThemeSettings {
             self.active_theme = Arc::new(base_theme);
         }
     }
+
+    /// Switches to the icon theme with the given name, if it exists.
+    ///
+    /// Returns a `Some` containing the new icon theme if it was successful.
+    /// Returns `None` otherwise.
+    pub fn switch_icon_theme(&mut self, icon_theme: &str, cx: &mut App) -> Option<Arc<IconTheme>> {
+        let themes = ThemeRegistry::default_global(cx);
+
+        let mut new_icon_theme = None;
+
+        if let Some(icon_theme) = themes.get_icon_theme(icon_theme).log_err() {
+            self.active_icon_theme = icon_theme.clone();
+            new_icon_theme = Some(icon_theme);
+            cx.refresh_windows();
+        }
+
+        new_icon_theme
+    }
 }
 
 // TODO: Make private, change usages to use `get_ui_font_size` instead.
 #[allow(missing_docs)]
-pub fn setup_ui_font(cx: &mut WindowContext) -> gpui::Font {
+pub fn setup_ui_font(window: &mut Window, cx: &mut App) -> gpui::Font {
     let (ui_font, ui_font_size) = {
         let theme_settings = ThemeSettings::get_global(cx);
         let font = theme_settings.ui_font.clone();
         (font, theme_settings.ui_font_size)
     };
 
-    cx.set_rem_size(ui_font_size);
+    window.set_rem_size(ui_font_size);
     ui_font
 }
 
@@ -515,7 +553,7 @@ impl settings::Settings for ThemeSettings {
 
     type FileContent = ThemeSettingsContent;
 
-    fn load(sources: SettingsSources<Self::FileContent>, cx: &mut AppContext) -> Result<Self> {
+    fn load(sources: SettingsSources<Self::FileContent>, cx: &mut App) -> Result<Self> {
         let themes = ThemeRegistry::default_global(cx);
         let system_appearance = SystemAppearance::default_global(cx);
 
@@ -636,7 +674,7 @@ impl settings::Settings for ThemeSettings {
     fn json_schema(
         generator: &mut SchemaGenerator,
         params: &SettingsJsonSchemaParams,
-        cx: &AppContext,
+        cx: &App,
     ) -> schemars::schema::RootSchema {
         let mut root_schema = generator.root_schema_for::<ThemeSettingsContent>();
         let theme_names = ThemeRegistry::global(cx)

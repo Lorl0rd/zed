@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use extension::{ExtensionHostProxy, ExtensionThemeProxy};
 use fs::Fs;
-use gpui::{AppContext, BackgroundExecutor, SharedString, Task};
+use gpui::{App, BackgroundExecutor, SharedString, Task};
 use theme::{ThemeRegistry, ThemeSettings};
 
 pub fn init(
@@ -41,7 +41,7 @@ impl ExtensionThemeProxy for ThemeRegistryProxy {
             .spawn(async move { theme_registry.load_user_theme(&theme_path, fs).await })
     }
 
-    fn reload_current_theme(&self, cx: &mut AppContext) {
+    fn reload_current_theme(&self, cx: &mut App) {
         ThemeSettings::reload_current_theme(cx)
     }
 
@@ -76,5 +76,9 @@ impl ExtensionThemeProxy for ThemeRegistryProxy {
                 .load_icon_theme(&icon_theme_path, &icons_root_dir, fs)
                 .await
         })
+    }
+
+    fn reload_current_icon_theme(&self, cx: &mut App) {
+        ThemeSettings::reload_current_icon_theme(cx)
     }
 }

@@ -30,6 +30,7 @@ async-trait.workspace = true
 client.workspace = true
 clock.workspace = true
 collections.workspace = true
+diff.workspace = true
 fs.workspace = true
 futures.workspace = true
 fuzzy.workspace = true
@@ -43,7 +44,6 @@ log.workspace = true
 lsp.workspace = true
 node_runtime.workspace = true
 image.workspace = true
-once_cell.workspace = true
 parking_lot.workspace = true
 pathdiff.workspace = true
 paths.workspace = true
@@ -78,6 +78,7 @@ fancy-regex.workspace = true
 [dev-dependencies]
 client = { workspace = true, features = ["test-support"] }
 collections = { workspace = true, features = ["test-support"] }
+diff = { workspace = true, features = ["test-support"] }
 env_logger.workspace = true
 fs = { workspace = true, features = ["test-support"] }
 git2.workspace = true
