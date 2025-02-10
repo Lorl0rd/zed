@@ -19,4 +19,4 @@ jobs:
           # Branch to merge into downstream
           downstream_branch: main_fork
           # GitHub Bot token
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT }}
